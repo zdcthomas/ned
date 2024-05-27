@@ -1,0 +1,26 @@
+[package]
+name = "ned"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "ned"
+crate-type = ["cdylib"]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-undefined",
+  "-C", "link-arg=dynamic_lookup",
+]
+
+[target.aarch64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-undefined",
+  "-C", "link-arg=dynamic_lookup",
+]
+
+[dependencies]
+nvim-oxi = { git = "https://github.com/noib3/nvim-oxi", features = [ "neovim-0-9", "libuv" ] }
+
