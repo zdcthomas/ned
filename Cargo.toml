@@ -22,5 +22,7 @@ rustflags = [
 ]
 
 [dependencies]
-nvim-oxi = { git = "https://github.com/noib3/nvim-oxi", features = [ "neovim-0-9", "libuv" ] }
+lazy_static = "1.4.0"
+nvim-oxi = { version = "0.5", features = ["neovim-0-10", "libuv",] }
+serde = "1.0.203"
 

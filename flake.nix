@@ -17,14 +17,54 @@
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
 
-      toolchain = fenix.packages.${system}.minimal.toolchain;
+      toolchain = fenix.packages.${system}.complete.toolchain;
+
+      ned =
+        (pkgs.makeRustPlatform {
+          cargo = toolchain;
+          rustc = toolchain;
+        })
+        .buildRustPackage {
+          pname = "ned";
+          version = "0.0.1";
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+            luajit
+            gcc
+            gnumake
+            toolchain
+          ];
+
+          src = ./.;
+
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+          };
+        };
     in {
       devShells.default = pkgs.mkShell {
         buildInputs = with pkgs;
           [
+            (
+              writers.writeBashBin "b" ''
+                rm -rf ./lua
+                mkdir -p lua
+                cargo build
+                cp ./target/debug/libned.so ./lua/ned.so
+              ''
+            )
+            (
+              writers.writeBashBin "b-old" ''
+                rm -rf ./lua
+                mkdir -p lua
+                cp ${ned}/lib/libned.so ./lua/ned.so
+              ''
+            )
             pkg-config
+            luajit
+            gnumake
             gcc
-            clang
+            # clang
             toolchain
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.buildPlatform.isDarwin [
@@ -36,25 +76,14 @@
           ];
       };
 
-      packages.default = let
-      in
-        (pkgs.makeRustPlatform {
-          cargo = toolchain;
-          rustc = toolchain;
-        })
-        .buildRustPackage {
-          pname = "ned";
-          version = "0.0.1";
+      packages.default = pkgs.stdenv.mkDerivation {
+        src = ./.;
+        name = "install";
+        installPhase = ''
+          mkdir -p $out/lua
+          cp -r ${ned}/lib/libned.so $out/lua/ned.so
 
-          src = ./.;
-
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-
-            outputHashes = {
-              "nvim-oxi-0.4.2" = "sha256-2OmLhPqFF8KO+vEvpqNWO/ojg1rJR9Alohynk3NGux8=";
-            };
-          };
-        };
+        '';
+      };
     });
 }

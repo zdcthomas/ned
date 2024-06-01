@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "lazy_static"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
+
+[[package]]
 name = "libc"
 version = "0.2.153"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12,13 +18,16 @@ checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 name = "ned"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "nvim-oxi",
+ "serde",
 ]
 
 [[package]]
 name = "nvim-oxi"
-version = "0.4.2"
-source = "git+https://github.com/noib3/nvim-oxi#1b05a03587e9aeff2f92e5c96dd7838c3de47b7a"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09ccc950ab8107c9a31cf45d1601251022be3aa9c8547148a25402da074b51fe"
 dependencies = [
  "nvim-oxi-api",
  "nvim-oxi-libuv",
@@ -30,8 +39,9 @@ dependencies = [
 
 [[package]]
 name = "nvim-oxi-api"
-version = "0.4.2"
-source = "git+https://github.com/noib3/nvim-oxi#1b05a03587e9aeff2f92e5c96dd7838c3de47b7a"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "212b0fe73d8aace5f61ec5c7d48a218aa988cd78afbc9b7b9412083404fed51d"
 dependencies = [
  "nvim-oxi-luajit",
  "nvim-oxi-macros",
@@ -43,8 +53,9 @@ dependencies = [
 
 [[package]]
 name = "nvim-oxi-libuv"
-version = "0.4.2"
-source = "git+https://github.com/noib3/nvim-oxi#1b05a03587e9aeff2f92e5c96dd7838c3de47b7a"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf5482cd89c0ac5a4b1cdbd37211677b378af73f813bc785dad15e8a04bd4684"
 dependencies = [
  "nvim-oxi-luajit",
  "thiserror",
@@ -52,16 +63,18 @@ dependencies = [
 
 [[package]]
 name = "nvim-oxi-luajit"
-version = "0.4.2"
-source = "git+https://github.com/noib3/nvim-oxi#1b05a03587e9aeff2f92e5c96dd7838c3de47b7a"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d014e4348a1679c82c820f0cc1abe57dba2940b9b490978177a16cb9fd19a39"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "nvim-oxi-macros"
-version = "0.4.2"
-source = "git+https://github.com/noib3/nvim-oxi#1b05a03587e9aeff2f92e5c96dd7838c3de47b7a"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48426a78ae72c66a61ff16bcec2b218d25d55f38491e10b3712354727c0c53ab"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -70,8 +83,9 @@ dependencies = [
 
 [[package]]
 name = "nvim-oxi-types"
-version = "0.4.2"
-source = "git+https://github.com/noib3/nvim-oxi#1b05a03587e9aeff2f92e5c96dd7838c3de47b7a"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ec4563e0e8d9de12dadee68be2bfe99827a73cd11349ab97441458e9a0f0f6c"
 dependencies = [
  "libc",
  "nvim-oxi-luajit",
@@ -99,18 +113,18 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.202"
+version = "1.0.203"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "226b61a0d411b2ba5ff6d7f73a476ac4f8bb900373459cd00fab8512828ba395"
+checksum = "7253ab4de971e72fb7be983802300c30b5a7f0c2e56fab8abfc6a214307c0094"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.202"
+version = "1.0.203"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6048858004bcff69094cd972ed40a32500f153bd3be9f716b2eed2e8217c4838"
+checksum = "500cbc0ebeb6f46627f50f3f5811ccf6bf00643be300b4c3eabc0ef55dc5b5ba"
 dependencies = [
  "proc-macro2",
  "quote",
