@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use nvim_oxi::api::types::CommandNArgs;
+use nvim_oxi::api::types::{CommandNArgs, KeymapInfos, Mode};
 use nvim_oxi::conversion::{Error as ConversionError, FromObject, ToObject};
 use nvim_oxi::serde::{Deserializer, Serializer};
 use std::cell::RefCell;
@@ -22,7 +22,6 @@ use nvim_oxi::print;
 //
 // Change selection
 
-
 enum Filter {
     Line { l_index: u32, r_index: u32 },
 }
@@ -40,12 +39,95 @@ fn get_miles(_foo: ()) -> Vec<u32> {
         .collect()
 }
 
+#[derive(Debug)]
+struct Line {
+    index: usize,
+    content: nvim_oxi::String,
+}
+
+// Range type, gauranteed contiguous?
+
+fn lines(start: usize, end: usize) -> Vec<Line> {
+    nvim_oxi::api::Buffer::current()
+        .get_lines(start..end, true)
+        .unwrap()
+        .enumerate()
+        .map(|(index, content)| Line { index, content })
+        // it'd be cool if this was still an iterator at the end and just a LineRange was returned
+        .collect()
+}
+
+/// gets a keymap based on the mode and lhs.
+/// doesn't account for buffer vs global and is currently implicit based on the call context
+fn get_mapping(mode: Mode, lhs: String) -> Option<api::types::KeymapInfos> {
+    nvim_oxi::api::get_keymap(mode).find(|keymap| keymap.lhs == lhs)
+}
+
+mod temp_key {
+    use nvim_oxi::api::{opts::SetKeymapOpts, types::KeymapInfos};
+
+    struct TempKeyBind {
+        lhs: String,
+        original_keybind: KeymapInfos,
+    }
+
+    /// starts a new keymap in the buffer currently in
+    pub fn new(lhs: String, rhs: String, original_keybind: KeymapInfos) {}
+
+    impl Drop for TempKeyBind {
+        fn drop(&mut self) {
+            let mut builder = SetKeymapOpts::builder();
+            builder.noremap(self.original_keybind.noremap);
+            if let Some(callback) = self.original_keybind.callback.clone() {
+                builder.callback(callback);
+            }
+            builder.expr(self.original_keybind.expr);
+            builder.nowait(self.original_keybind.nowait);
+            builder.script(self.original_keybind.script);
+            builder.silent(self.original_keybind.silent);
+            if self.original_keybind.buffer {
+                // TODO: <08-06-24, zdcthomas> this is wrong, it's not neccesarily the current
+                // buffer I don't think...
+                // Solution:
+                // Get buffer of original buffer keymap
+                // But I don't see how... Might not be a thing...
+
+                nvim_oxi::api::Buffer::current().set_keymap(
+                    self.original_keybind.mode,
+                    &self.original_keybind.lhs,
+                    self.original_keybind
+                        .rhs
+                        .clone()
+                        .unwrap_or_default()
+                        .as_str(),
+                    &builder.build(),
+                )
+            } else {
+                nvim_oxi::api::set_keymap(
+                    self.original_keybind.mode,
+                    &self.original_keybind.lhs,
+                    self.original_keybind
+                        .rhs
+                        .clone()
+                        .unwrap_or_default()
+                        .as_str(),
+                    &builder.build(),
+                )
+            }
+            .unwrap()
+        }
+    }
+}
+/// When initialized sets the keymap in nvim
+/// when dropped resets to original keymapping
+
 fn ned_command(args: CommandArgs) {
     print!("{:?}", args.fargs);
-    print!("Yo YO YO YOY OY OIU OHSDFKJHD!");
-    let foo = nvim_oxi::api::Buffer::current()
-        .get_lines(0..5, true)
-        .unwrap();
+    nvim_oxi::api::set_keymap(Mode::Normal, l, rhs, opts)
+    // lines(0, 5);
+    // let foo: Result<i32, nvim_oxi::api::Error> = nvim_oxi::api::eval("getchar()");
+
+    // nvim_oxi::print!("{:?}", foo);
 }
 
 #[derive(Serialize, Deserialize)]
