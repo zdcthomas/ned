@@ -123,7 +123,7 @@ mod temp_key {
 
 fn ned_command(args: CommandArgs) {
     print!("{:?}", args.fargs);
-    nvim_oxi::api::set_keymap(Mode::Normal, l, rhs, opts)
+    // nvim_oxi::api::set_keymap(Mode::Normal, l, rhs, opts)
     // lines(0, 5);
     // let foo: Result<i32, nvim_oxi::api::Error> = nvim_oxi::api::eval("getchar()");
 
