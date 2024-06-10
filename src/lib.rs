@@ -1,16 +1,22 @@
 use lazy_static::lazy_static;
-use nvim_oxi::api::types::{CommandNArgs, KeymapInfos, Mode};
+use nvim_oxi::api::types::{CommandNArgs, LogLevel};
 use nvim_oxi::conversion::{Error as ConversionError, FromObject, ToObject};
+use nvim_oxi::mlua::{Function as LuaFunction, Table};
 use nvim_oxi::serde::{Deserializer, Serializer};
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write as _;
 use std::rc::Rc;
 use std::sync::Mutex;
 
 use nvim_oxi::{Dictionary, Function, Object};
 use serde::{self, Deserialize, Serialize};
 
-use nvim_oxi::api::{self, opts::*, types::CommandArgs, Window};
-use nvim_oxi::print;
+use nvim_oxi::api::{self, opts::*, types::CommandArgs};
+
+use crate::temp_key::Mappings;
+mod temp_key;
 
 // - could hash before and after filter creation to ensure buffer hasn't changed, or maybe swap
 //   buffer to readonly while making filters, then turn that off to apply changes
@@ -24,10 +30,6 @@ use nvim_oxi::print;
 
 enum Filter {
     Line { l_index: u32, r_index: u32 },
-}
-
-fn multiply((a, b): (i32, i32)) -> i32 {
-    a * b
 }
 
 fn get_miles(_foo: ()) -> Vec<u32> {
@@ -45,84 +47,47 @@ struct Line {
     content: nvim_oxi::String,
 }
 
-// Range type, gauranteed contiguous?
-
-fn lines(start: usize, end: usize) -> Vec<Line> {
-    nvim_oxi::api::Buffer::current()
+fn lines((): ()) {
+    let start = 1;
+    let end = 2;
+    let foo: Vec<Line> = nvim_oxi::api::Buffer::current()
         .get_lines(start..end, true)
         .unwrap()
         .enumerate()
         .map(|(index, content)| Line { index, content })
         // it'd be cool if this was still an iterator at the end and just a LineRange was returned
-        .collect()
+        .collect();
+    nvim_oxi::print!("{:?}", foo);
 }
 
-/// gets a keymap based on the mode and lhs.
-/// doesn't account for buffer vs global and is currently implicit based on the call context
-fn get_mapping(mode: Mode, lhs: String) -> Option<api::types::KeymapInfos> {
-    nvim_oxi::api::get_keymap(mode).find(|keymap| keymap.lhs == lhs)
-}
-
-mod temp_key {
-    use nvim_oxi::api::{opts::SetKeymapOpts, types::KeymapInfos};
-
-    struct TempKeyBind {
-        lhs: String,
-        original_keybind: KeymapInfos,
-    }
-
-    /// starts a new keymap in the buffer currently in
-    pub fn new(lhs: String, rhs: String, original_keybind: KeymapInfos) {}
-
-    impl Drop for TempKeyBind {
-        fn drop(&mut self) {
-            let mut builder = SetKeymapOpts::builder();
-            builder.noremap(self.original_keybind.noremap);
-            if let Some(callback) = self.original_keybind.callback.clone() {
-                builder.callback(callback);
-            }
-            builder.expr(self.original_keybind.expr);
-            builder.nowait(self.original_keybind.nowait);
-            builder.script(self.original_keybind.script);
-            builder.silent(self.original_keybind.silent);
-            if self.original_keybind.buffer {
-                // TODO: <08-06-24, zdcthomas> this is wrong, it's not neccesarily the current
-                // buffer I don't think...
-                // Solution:
-                // Get buffer of original buffer keymap
-                // But I don't see how... Might not be a thing...
-
-                nvim_oxi::api::Buffer::current().set_keymap(
-                    self.original_keybind.mode,
-                    &self.original_keybind.lhs,
-                    self.original_keybind
-                        .rhs
-                        .clone()
-                        .unwrap_or_default()
-                        .as_str(),
-                    &builder.build(),
-                )
-            } else {
-                nvim_oxi::api::set_keymap(
-                    self.original_keybind.mode,
-                    &self.original_keybind.lhs,
-                    self.original_keybind
-                        .rhs
-                        .clone()
-                        .unwrap_or_default()
-                        .as_str(),
-                    &builder.build(),
-                )
-            }
-            .unwrap()
-        }
-    }
-}
 /// When initialized sets the keymap in nvim
 /// when dropped resets to original keymapping
+fn ned_start_command(_args: CommandArgs) {
+    // nvim_oxi::print!("Entering Ned Mode");
 
-fn ned_command(args: CommandArgs) {
-    print!("{:?}", args.fargs);
+    let mut maps = MAPS.lock().unwrap();
+    for (lhs, func_name) in FILTERS.iter() {
+        maps.add(
+            lhs.to_owned(),
+            format!(r#"<CMD>lua require("ned").{}()<CR>"#, func_name).as_str(),
+            SetKeymapOpts::builder().build(),
+        )
+        .unwrap();
+    }
+
+    // nvim_oxi::api::set_keymap(Mode::Normal, l, rhs, opts)
+    // lines(0, 5);
+    // let foo: Result<i32, nvim_oxi::api::Error> = nvim_oxi::api::eval("getchar()");
+    // nvim_oxi::print!("{:?}", foo);
+}
+
+fn ned_end_command((): ()) {
+    nvim_oxi::print!("Exiting Ned Mode");
+
+    // let foo: String = add.to_object().into();
+
+    MAPS.lock().unwrap().clear();
+
     // nvim_oxi::api::set_keymap(Mode::Normal, l, rhs, opts)
     // lines(0, 5);
     // let foo: Result<i32, nvim_oxi::api::Error> = nvim_oxi::api::eval("getchar()");
@@ -147,30 +112,59 @@ impl ToObject for &Config {
     }
 }
 
+fn test_insert((): ()) {
+    nvim_oxi::api::notify(
+        "Hello there!",
+        LogLevel::Warn,
+        &NotifyOpts::builder().build(),
+    )
+    .unwrap();
+    // let gcs = nvim_oxi::mlua::lua()
+    //     .globals()
+    //     .get::<_, Table>("vim")
+    //     .unwrap()
+    //     .get::<_, Table>("fn")
+    //     .unwrap()
+    //     .get::<_, LuaFunction>("getcharstr")
+    //     .unwrap();
+    //
+    // let answer: String = gcs.call("").unwrap();
+    // nvim_oxi::print!("{}", answer);
+
+    // let mut file = File::create("foo.txt").unwrap();
+    // file.write_all(answer.as_bytes()).unwrap();
+}
+
 lazy_static! {
     static ref CACHE_PATTERN: Mutex<Vec<Config>> = Mutex::new(vec![Config {
         manufacturer: "Hello!".to_string(),
         miles: 30
     }]);
+    static ref MAPS: Mutex<Mappings> = Mutex::new(Mappings::new());
+    static ref FILTERS: HashMap<String, String> = HashMap::from([
+        ("l".to_owned(), "lines".to_owned()),
+        ("i".to_owned(), "test_insert".to_owned()),
+        ("<esc>".to_owned(), "close_ned".to_owned()),
+    ]);
 }
 
 #[nvim_oxi::plugin]
 fn ned() -> nvim_oxi::Result<Dictionary> {
-    // let add = Function::from_fn(|(a, b): (i32, i32)| -> Result<i32, nvim_oxi::Error> { Ok(a + b) });
     //
     // let compute = Function::from_fn(
     //     |(fun, a, b): (Function<(i32, i32), i32>, i32, i32)| -> Result<i32, nvim_oxi::Error> {
     //         Ok(fun.call((a, b))?)
     //     },
     // );
-    let config: Rc<RefCell<Option<Config>>> = Rc::default();
-    let c = Rc::clone(&config);
+    // let config: Rc<RefCell<Option<Config>>> = Rc::default();
+    // let c = Rc::clone(&config);
     let opts = CreateCommandOpts::builder()
         .desc("Ned entry point")
         .nargs(CommandNArgs::ZeroOrOne)
         .build();
 
-    api::create_user_command("Ned", ned_command, &opts);
+    api::create_user_command("NedStart", ned_start_command, &opts).unwrap();
+    // api::create_user_command("NedEnd", ned_end_command, &opts).unwrap();
 
     Ok(Dictionary::from_iter([
         (
@@ -182,6 +176,11 @@ fn ned() -> nvim_oxi::Result<Dictionary> {
             })),
         ),
         ("c", Object::from(Function::from(get_miles))),
-        ("multiply", Object::from(Function::from_fn(multiply))), // ("compute", Object::from(compute)),
+        ("lines", Object::from(Function::from_fn(lines))),
+        ("test_insert", Object::from(Function::from_fn(test_insert))),
+        (
+            "close_ned",
+            Object::from(Function::from_fn(ned_end_command)),
+        ),
     ]))
 }

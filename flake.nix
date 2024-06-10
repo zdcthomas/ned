@@ -30,6 +30,10 @@
           nativeBuildInputs = with pkgs; [
             pkg-config
             luajit
+          ];
+          buildInputs = with pkgs; [
+            pkg-config
+            luajit
             gcc
             gnumake
             toolchain
@@ -41,15 +45,25 @@
             lockFile = ./Cargo.lock;
           };
         };
+
+      defaultPkg = pkgs.stdenv.mkDerivation {
+        src = ./.;
+        name = "install";
+        installPhase = ''
+          mkdir -p $out/lua
+          cp -r ${ned}/lib/libned.so $out/lua/ned.so
+
+        '';
+      };
     in {
       devShells.default = pkgs.mkShell {
-        buildInputs = with pkgs;
+        packages = with pkgs;
           [
             (
               writers.writeBashBin "b" ''
                 rm -rf ./lua
                 mkdir -p lua
-                cargo build
+                nix build
                 cp ./target/debug/libned.so ./lua/ned.so
               ''
             )
@@ -76,14 +90,16 @@
           ];
       };
 
-      packages.default = pkgs.stdenv.mkDerivation {
-        src = ./.;
-        name = "install";
-        installPhase = ''
-          mkdir -p $out/lua
-          cp -r ${ned}/lib/libned.so $out/lua/ned.so
-
-        '';
+      packages.default = defaultPkg;
+      apps.default = {
+        type = "app";
+        program = "${(
+          pkgs.writers.writeBashBin "b" ''
+            rm -rf ./lua
+            mkdir -p lua
+            cp ${defaultPkg}/lua/ned.so ./lua/ned.so
+          ''
+        )}/bin/b";
       };
     });
 }
