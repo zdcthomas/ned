@@ -2,10 +2,10 @@
   inputs = {
     fenix = {
       url = "github:nix-community/fenix";
-      inputs.nixpkgs.follows = "nixpkgs";
+      # inputs.nixpkgs.follows = "nixpkgs";
     };
     flake-utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
   };
 
   outputs = {
@@ -24,62 +24,67 @@
           cargo = toolchain;
           rustc = toolchain;
         })
-        .buildRustPackage {
-          pname = "ned";
-          version = "0.0.1";
-          nativeBuildInputs = with pkgs; [
-            pkg-config
-            luajit
-          ];
-          buildInputs = with pkgs; [
-            pkg-config
-            luajit
-            gcc
-            gnumake
-            toolchain
-          ];
+        .buildRustPackage ({
+            pname = "ned";
+            version = "0.0.1";
 
-          src = ./.;
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+              lua
+              luajit
+            ];
+            buildInputs = with pkgs; [
+              pkg-config
+              luajit
+              lua
+              gcc
+              gnumake
+              toolchain
+            ];
 
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-          };
-        };
+            src = ./.;
+
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+            };
+          }
+          // pkgs.lib.attrsets.optionalAttrs pkgs.stdenv.isDarwin {
+            RUSTFLAGS = [
+              "-C link-arg=-undefined"
+              "-C link-arg=dynamic_lookup"
+            ];
+          });
 
       defaultPkg = pkgs.stdenv.mkDerivation {
         src = ./.;
         name = "install";
-        installPhase = ''
+        installPhase = let
+          extension =
+            if system == "aarch64-darwin"
+            then "dylib"
+            else "so";
+          # Note, "so" is always the desired output extension, even on MacOS
+        in ''
           mkdir -p $out/lua
-          cp -r ${ned}/lib/libned.so $out/lua/ned.so
+          ls ${ned}/lib
+          cp -r ${ned}/lib/libned.${extension} $out/lua/ned.so
 
         '';
       };
     in {
       devShells.default = pkgs.mkShell {
-        packages = with pkgs;
+        # buildInputs = with pkgs; lib.lists.optionals stdenv.isDarwin [pkgs.libiconv];
+        nativeBuildInputs = with pkgs;
           [
-            (
-              writers.writeBashBin "b" ''
-                rm -rf ./lua
-                mkdir -p lua
-                nix build
-                cp ./target/debug/libned.so ./lua/ned.so
-              ''
-            )
-            (
-              writers.writeBashBin "b-old" ''
-                rm -rf ./lua
-                mkdir -p lua
-                cp ${ned}/lib/libned.so ./lua/ned.so
-              ''
-            )
             pkg-config
             luajit
+            lua
             gnumake
             gcc
-            # clang
-            toolchain
+            clang
+
+            libiconv
+            # toolchain
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.buildPlatform.isDarwin [
             pkgs.darwin.apple_sdk.frameworks.Security
