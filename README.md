@@ -29,3 +29,8 @@ e.g
 ```
 :=require("ned")
 ```
+
+### Lazy
+
+You don't need to use Lazy as a package manager to use these steps above, I just
+use it here as an automatic to include a lua file when I'm in this directory
