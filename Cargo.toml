@@ -22,6 +22,7 @@ rustflags = [
 ]
 
 [dependencies]
+anyhow = "1.0.86"
 lazy_static = "1.4.0"
 nvim-oxi = { version = "0.5", features = ["neovim-0-10", "mlua", "libuv",] }
 serde = "1.0.203"

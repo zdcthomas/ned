@@ -84,7 +84,7 @@
             clang
 
             libiconv
-            # toolchain
+            toolchain
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.buildPlatform.isDarwin [
             pkgs.darwin.apple_sdk.frameworks.Security

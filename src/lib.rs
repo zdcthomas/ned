@@ -1,11 +1,17 @@
+use anyhow::{anyhow, bail, Result};
 use lazy_static::lazy_static;
-use nvim_oxi::api::types::{CommandNArgs, LogLevel};
+use nvim_oxi::api::types::{
+    CommandNArgs, LogLevel, WindowAnchor, WindowBorder, WindowConfig, WindowRelativeTo, WindowStyle,
+};
+
+use nvim_oxi::api::Buffer;
 use nvim_oxi::conversion::{Error as ConversionError, FromObject, ToObject};
 use nvim_oxi::serde::{Deserializer, Serializer};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::default;
+use std::sync::{Arc, Mutex};
 
-use nvim_oxi::{Dictionary, Function, Object};
+use nvim_oxi::{lua, Array, Dictionary, Function, Object};
 use serde::{self, Deserialize, Serialize};
 
 use nvim_oxi::api::{self, opts::*, types::CommandArgs};
@@ -21,12 +27,105 @@ lazy_static! {
         miles: 30
     }]);
     static ref MAPS: Mutex<Mappings> = Mutex::new(Mappings::new());
-    static ref FILTER_MAPPINGS: HashMap<String, fn(())> = HashMap::from([
-        ("l".to_owned(), lines as fn(())),
-        ("i".to_owned(), test_insert as fn(())),
-        ("<esc>".to_owned(), ned_end_command as fn(())),
+    static ref FILTER_CREATOR_MAPPINGS: HashMap<String, FilterFunc> = HashMap::from([
+        ("l".to_owned(), lines as FilterFunc),
+        ("c".to_owned(), containing as FilterFunc),
+        ("i".to_owned(), test_insert as FilterFunc),
+        ("p".to_owned(), show_filter_list as FilterFunc),
+        // ("<esc>".to_owned(), leave),
     ]);
-    static ref ACTIVE_FILTERS: Vec<Box<dyn FilterCreator + Send + Sync>> = vec![];
+    // eventually, will this be like a hashmap for filterlists?
+    static ref ACTIVE_FILTERS: Mutex<FilterList> = Mutex::new(FilterList::default());
+}
+
+fn containing(_: ()) -> FilterRet {
+    Ok(Filter::Containing {
+        char: get_input::<String>("char>")?,
+    })
+}
+
+fn show_filter_list(_: ()) -> FilterRet {
+    let mut buf = nvim_oxi::api::create_buf(false, true)?;
+    let filters = ACTIVE_FILTERS.try_lock().unwrap();
+    let lines = filters.inner.iter().map(|f| format!("{:?}", f));
+
+    buf.set_lines(0..lines.len(), true, lines)?;
+    let mut win = nvim_oxi::api::open_win(
+        &buf,
+        false,
+        &WindowConfig::builder()
+            .relative(WindowRelativeTo::Cursor)
+            .width(50)
+            .height(50)
+            .col(10)
+            .row(10)
+            .border(WindowBorder::Double)
+            .anchor(WindowAnchor::SouthEast)
+            .style(WindowStyle::Minimal)
+            .build(),
+    )?;
+    // TODO: <17-06-24, zdcthomas> create autocommands that change filter list on text save
+
+    Ok(Filter::None)
+}
+
+// TODO: <17-06-24, zdcthomas> BIG QUESTION: when do I actually run the filters/edits? Another way
+// to ask this is to ask, what is the source of truth for the filter list? I guess it's the filter
+// list struct. Maybe that should then also hold the whole pipeline?...
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+struct FilterList {
+    inner: Vec<Filter>,
+    buffer: Option<Buffer>,
+}
+
+impl FilterList {
+    // fn new(buffer: Buffer) -> Self {
+    //     Self {
+    //         inner: vec![],
+    //         buffer,
+    //     }
+    // }
+
+    fn add(&mut self, filter: Filter) {
+        self.inner.push(filter)
+    }
+
+    // fn len(&self) -> usize {
+    //     self.inner.len()
+    // }
+}
+impl From<FilterList> for Object {
+    fn from(value: FilterList) -> Self {
+        Object::from(Array::from_iter(value.inner))
+    }
+}
+
+impl From<Filter> for Object {
+    fn from(value: Filter) -> Self {
+        Dictionary::from_iter(match value {
+            Filter::Line { x, y } => [
+                ("x", x.to_string()),
+                ("y", y.to_string()),
+                ("type", "Line".to_owned()),
+            ],
+            Filter::Between { start, end } => [
+                ("left_char", start.to_string()),
+                ("right_char", end.to_string()),
+                ("type", "Between`".to_owned()),
+            ],
+            Filter::None => todo!(),
+            Filter::Containing { char } => todo!(),
+        })
+        .into()
+    }
+}
+impl lua::Pushable for FilterList {
+    unsafe fn push(self, lstate: *mut lua::ffi::lua_State) -> Result<std::ffi::c_int, lua::Error> {
+        self.to_object()
+            .map_err(lua::Error::push_error_from_err::<Self, _>)?
+            .push(lstate)
+    }
 }
 
 /// N(ew)ED(itor)
@@ -61,16 +160,14 @@ fn ned() -> nvim_oxi::Result<Dictionary> {
         .nargs(CommandNArgs::ZeroOrOne)
         .build();
 
-    api::create_user_command("NedStart", ned_start_command, &opts).unwrap();
+    api::create_user_command("NedStart", ned_start_command, &opts)?;
     // api::create_user_command("NedEnd", ned_end_command, &opts).unwrap();
 
     Ok(Dictionary::from_iter([
         (
-            "drive_all",
-            Object::from(Function::from_fn(|args: Option<u32>| {
-                for ele in CACHE_PATTERN.lock().unwrap().iter_mut() {
-                    ele.miles += args.unwrap_or(5)
-                }
+            "filter_list",
+            Object::from(Function::from_fn(|args: ()| {
+                format!("{:?}", ACTIVE_FILTERS.lock().unwrap())
             })),
         ),
         // ("c", Object::from(Function::from(get_miles))),
@@ -153,23 +250,18 @@ Filter::StartsWith{txt: '('}
 
 */
 
-trait FilterCreator {
-    // TODO: <10-06-24, zdcthomas> this needs to get the current set of ranges I think.
-    fn create(&self) -> Vec<Filter>;
-}
+// trait FilterCreator {
+//     // TODO: <10-06-24, zdcthomas> this needs to get the current set of ranges I think.
+//     fn create(&self) -> Vec<Filter>;
+// }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 enum Filter {
+    // TODO: <17-06-24, zdcthomas> add arity maybe?
     Line { x: usize, y: usize },
     Between { start: char, end: char },
-}
-
-fn get_miles(_foo: ()) -> Vec<u32> {
-    CACHE_PATTERN
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|c| c.miles)
-        .collect()
+    Containing { char: String },
+    None,
 }
 
 #[derive(Debug)]
@@ -178,13 +270,19 @@ struct Line {
     content: nvim_oxi::String,
 }
 
-fn get_input(p: &str) -> Result<String, nvim_oxi::api::Error> {
-    nvim_oxi::api::eval(format!(r#"input("{p}")"#).as_str())
+fn get_input<T>(p: &str) -> Result<T, nvim_oxi::api::Error>
+where
+    T: FromObject,
+{
+    nvim_oxi::api::eval::<T>(format!(r#"input("{p}")"#).as_str())
 }
 
-fn lines((): ()) {
-    let start: usize = get_input("start>").unwrap().parse().unwrap();
-    let end = get_input("end>").unwrap().parse().unwrap();
+fn lines((): ()) -> FilterRet {
+    let start: usize = get_input::<String>("start>")?.parse()?;
+    // Ok(s) => s,
+    // Err(err) => bail!("Failed to parse input"),
+    // };,
+    let end: usize = get_input::<String>("end>")?.parse()?;
     let foo: Vec<Line> = nvim_oxi::api::Buffer::current()
         .get_lines(start..end, true)
         .unwrap()
@@ -193,41 +291,58 @@ fn lines((): ()) {
         // it'd be cool if this was still an iterator at the end and just a LineRange was returned
         .collect();
     nvim_oxi::print!("{:?}", foo);
+    Ok(Filter::Line { x: start, y: end })
+}
+pub fn info(msg: impl AsRef<str>) {
+    // println!("XXXXXX: {}", msg.as_ref());
+    // nvim_oxi::api::notify(msg.as_ref(), LogLevel::Info, &NotifyOpts::default());
 }
 
 /// When initialized sets the keymap in nvim
 /// when dropped resets to original keymapping
 fn ned_start_command(_args: CommandArgs) {
-    // nvim_oxi::print!("Entering Ned Mode");
+    info("I'm going ned");
+    let mut buffer = Buffer::current();
+    info(format!("buffer: {:?}", buffer));
 
     let mut maps = MAPS.lock().unwrap();
-    for (lhs, callback) in FILTER_MAPPINGS.iter() {
+    for (lhs, callback) in FILTER_CREATOR_MAPPINGS.iter() {
         maps.add(
             lhs.to_owned(),
             "",
-            SetKeymapOpts::builder().callback(callback).build(),
+            SetKeymapOpts::builder()
+                .callback(|_: ()| {
+                    match callback(()) {
+                        Ok(filter) => {
+                            ACTIVE_FILTERS.lock().unwrap().add(filter);
+                            let lines = nvim_oxi::api::Buffer::current().get_lines(
+                                0..nvim_oxi::api::Buffer::current().line_count().unwrap(),
+                                false,
+                            );
+
+                            // TODO: <17-06-24, zdcthomas> run the filters
+                        }
+                        Err(err) => {
+                            nvim_oxi::api::notify(
+                                format!("{:?}", err).as_str(),
+                                LogLevel::Error,
+                                &NotifyOpts::builder().build(),
+                            )
+                            .unwrap();
+                        }
+                    };
+                })
+                .build(),
+            &mut buffer,
         )
         .unwrap();
     }
-
-    // nvim_oxi::api::set_keymap(Mode::Normal, l, rhs, opts)
-    // lines(0, 5);
-    // let foo: Result<i32, nvim_oxi::api::Error> = nvim_oxi::api::eval("getchar()");
-    // nvim_oxi::print!("{:?}", foo);
 }
 
-fn ned_end_command((): ()) {
+fn leave((): ()) -> FilterRet {
     nvim_oxi::print!("Exiting Ned Mode");
-
-    // let foo: String = add.to_object().into();
-
     MAPS.lock().unwrap().clear();
-
-    // nvim_oxi::api::set_keymap(Mode::Normal, l, rhs, opts)
-    // lines(0, 5);
-    // let foo: Result<i32, nvim_oxi::api::Error> = nvim_oxi::api::eval("getchar()");
-
-    // nvim_oxi::print!("{:?}", foo);
+    Ok(Filter::None)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -247,13 +362,14 @@ impl ToObject for &Config {
     }
 }
 
-fn test_insert((): ()) {
+fn test_insert((): ()) -> FilterRet {
     nvim_oxi::api::notify(
         "Hello there!",
         LogLevel::Warn,
         &NotifyOpts::builder().build(),
     )
     .unwrap();
+    Ok(Filter::None)
     // let gcs = nvim_oxi::mlua::lua()
     //     .globals()
     //     .get::<_, Table>("vim")
@@ -269,6 +385,6 @@ fn test_insert((): ()) {
     // let mut file = File::create("foo.txt").unwrap();
     // file.write_all(answer.as_bytes()).unwrap();
 }
-
-type FilterFunc = fn(());
+type FilterRet = anyhow::Result<Filter>;
+type FilterFunc = fn(()) -> FilterRet;
 // struct Filter {}

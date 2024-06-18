@@ -4,14 +4,14 @@ use nvim_oxi::{
     api::{
         opts::SetKeymapOpts,
         types::{KeymapInfos, Mode},
+        Buffer,
     },
     Result,
 };
 
+use crate::info;
+
 pub struct Mappings {
-    // TODO: <09-06-24, zdcthomas> inner should probably just be a HashSet to not duplication the
-    // lhs
-    // mappings: HashMap<String, TempKeyBind>,
     mappings: HashSet<TempKeyBind>,
 }
 
@@ -21,11 +21,19 @@ impl Mappings {
             mappings: HashSet::new(),
         }
     }
-    pub fn add(&mut self, lhs: String, rhs: &str, opts: SetKeymapOpts) -> Result<()> {
+    pub fn add(
+        &mut self,
+        lhs: String,
+        rhs: &str,
+        opts: SetKeymapOpts,
+        buffer: &mut Buffer,
+    ) -> Result<()> {
         // remove first to drop
         // self.mappings.remove(&);
 
-        self.mappings.insert(TempKeyBind::new(lhs, rhs, opts)?);
+        info(format!("Adding keymap for lhs:{:?}", lhs));
+        self.mappings
+            .insert(TempKeyBind::new(lhs, rhs, opts, buffer)?);
         Ok(())
     }
 
@@ -96,15 +104,21 @@ impl TempKeyBind {
         }
         .unwrap()
     }
-    fn new(lhs: String, rhs: &str, opts: SetKeymapOpts) -> Result<Self> {
+    /// Creates a buffer local mapping
+    fn new(lhs: String, rhs: &str, opts: SetKeymapOpts, buffer: &mut Buffer) -> Result<Self> {
         let original_keybind = get_mapping(Mode::Normal, lhs.as_str());
+        info(buffer.to_string());
 
-        match nvim_oxi::api::Buffer::current().set_keymap(Mode::Normal, &lhs, rhs, &opts) {
+        match buffer.set_keymap(Mode::Normal, &lhs, rhs, &opts) {
             Ok(()) => Ok(Self {
                 lhs,
                 original_keybind,
             }),
-            Err(err) => Err(err.into()),
+            Err(err) => {
+                info("Oh No!");
+                info(err.to_string());
+                Err(err.into())
+            }
         }
     }
 }
