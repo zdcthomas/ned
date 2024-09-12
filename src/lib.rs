@@ -76,7 +76,6 @@ fn show_filter_list(_: ()) -> FilterRet {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct FilterList {
     inner: Vec<Filter>,
-    buffer: Option<Buffer>,
 }
 
 impl FilterList {
